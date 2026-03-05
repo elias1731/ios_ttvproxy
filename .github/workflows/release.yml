@@ -1,0 +1,59 @@
+name: Build and Release iOS Tweak
+
+on:
+  push:
+    branches: [ main, dev ]
+  workflow_dispatch:
+    inputs:
+      VERSION:
+        description: "Tweak Version (e.g. 1.0.0)"
+        required: true
+        default: "1.0.0"
+
+jobs:
+  build:
+    runs-on: macos-latest
+    permissions:
+      contents: write # Required to allow GitHub Actions to create releases
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install ldid
+          brew install dpkg
+
+      - name: Setup Theos
+        run: |
+          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+          echo "THEOS=~/theos" >> $GITHUB_ENV
+
+      - name: Setup iOS SDK
+        run: |
+          git clone https://github.com/theos/sdks.git ~/theos/sdks
+
+      - name: Build Tweak
+        run: |
+          make package FINALPACKAGE=1
+          # Locate built deb file and save to environment variable
+          echo "DEB_FILE=$(find packages -name '*.deb' | head -n1)" >> $GITHUB_ENV
+
+      - name: Set Release Tag
+        run: |
+          # Determine if manual trigger (versioned) or auto-push (build number)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "TAG_NAME=v${{ inputs.VERSION }}" >> $GITHUB_ENV
+          else
+            echo "TAG_NAME=build-${{ github.run_number }}" >> $GITHUB_ENV
+          fi
+
+      - name: Release Tweak
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          name: "Luminous Proxy ${{ env.TAG_NAME }}"
+          files: ${{ env.DEB_FILE }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
